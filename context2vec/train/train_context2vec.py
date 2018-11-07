@@ -6,6 +6,8 @@ import argparse
 import time
 import sys
 
+import pickle
+
 import numpy as np
 from chainer import cuda
 import chainer.links as L
@@ -15,8 +17,9 @@ import chainer.computational_graph as C
 from chainer.optimizer_hooks import GradientClipping
 
 from sentence_reader import SentenceReaderDir
-from context2vec.common.context_models import BiLstmContext
-from context2vec.common.defs import IN_TO_OUT_UNITS_RATIO, NEGATIVE_SAMPLING_NUM
+from model_reader import ModelReader
+from context_models import BiLstmContext
+from defs import IN_TO_OUT_UNITS_RATIO, NEGATIVE_SAMPLING_NUM
 
 
 #TODO: LOWER AS ARG
@@ -26,6 +29,7 @@ def dump_embeddings(filename, w, units, index2word):
         for i in range(w.shape[0]):
             v = ' '.join(['%f' % v for v in w[i]])
             f.write('%s %s\n' % (index2word[i], v))
+
             
 def dump_comp_graph(filename, vs):
     g = C.build_computational_graph(vs)
@@ -72,6 +76,8 @@ def parse_arguments():
                         help='alpha param for Adam, controls the learning rate')
     parser.add_argument('--grad-clip', '-gc', default=None, type=float,
                         help='if specified, clip l2 of the gradient to this value')
+    parser.add_argument('--pickle', '-pk', default=None, choices=['yes', 'no'],
+                        help='dump model data using pickle')
     
     args = parser.parse_args()
     
@@ -81,6 +87,13 @@ def parse_arguments():
         args.deep = False
     else:
         raise Exception("Invalid deep choice: " + args.deep)
+
+    if args.pickle == 'yes':
+        args.pickle = True
+    elif args.pickle == 'no':
+        args.pickle = False
+    else:
+        raise Exception("Invalid pickle using choice: " + args.pickle)
     
     print('GPU: {}'.format(args.gpu))
     print('# unit: {}'.format(args.unit))
@@ -167,7 +180,12 @@ for epoch in range(args.epoch):
 
     print('accum words per epoch', word_count, 'accum_loss', accum_loss, 'accum_loss/word', accum_mean_loss)
     reader.close()
-    
+
+#if(args.modelfile != None):
+#    with open(args.modelfile + '.pickle', mode='wb') as f:
+#        allInOne = (model.loss_func.W.data, reader.word2index, reader.index2word, model)
+#        pickle.dump(allInOne, f)
+
 if args.wordsfile != None:        
     dump_embeddings(args.wordsfile+'.targets', model.loss_func.W.data, target_word_units, reader.index2word)
 
@@ -184,6 +202,16 @@ with open(args.modelfile + '.params', 'w') as f:
         f.write('deep\tno\n')
     f.write('drop_ratio\t' + str(args.dropout)+'\n')    
     f.write('#\t{}\n'.format(' '.join(sys.argv)))
-    
-    
+
+
+if(args.pickle):
+    model_reader = ModelReader(args.modelfile + '.params')
+    w_file = model_reader.w
+    word2index_file = model_reader.word2index
+    index2word_file = model_reader.index2word
+    model_file = model_reader.model
+    if(args.modelfile != None):
+        with open(args.modelfile + '.pickle', mode='wb') as f:
+            allInOne = (w_file, word2index_file, index2word_file, model_file)
+            pickle.dump(allInOne, f)
 
